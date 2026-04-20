@@ -55,9 +55,9 @@ Format each fact as a single sentence. If no new facts, return 'NONE'.
 User: {user_message}
 Elijah: {ai_response}
 """
-        # Using 2.0-flash for fast extraction
+        # Using stable 1.5 alias for extraction
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-1.5-flash-latest',
             contents=[f"System: You are a data extraction assistant. Extract personal facts only.\n\n{extraction_prompt}"]
         )
         
