@@ -2,18 +2,29 @@ import os
 import json
 from dotenv import load_dotenv
 from openai import OpenAI
+from memory import MemoryManager
 
 load_dotenv()
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+memory_manager = MemoryManager()
 
-def get_ai_response(message):
+def get_ai_response(message, memories):
     try:
+        context = "\n".join([f"- {m}" for m in memories])
+        system_message = f"""You are Lucio, a proactive and friendly personal AI assistant. 
+Keep your responses concise and helpful.
+
+Here are some facts I remember about you:
+{context}
+
+Use these facts to personalize your response if relevant."""
+
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are Lucio, a proactive and friendly personal AI assistant. Keep your responses concise and helpful."},
+                {"role": "system", "content": system_message},
                 {"role": "user", "content": message}
             ]
         )
@@ -42,8 +53,16 @@ def main():
             # Check if the sender is the authorized user (you)
             authorized_user = os.getenv("USER_FB_ID")
             if author_id == authorized_user:
-                ai_response = get_ai_response(message)
+                # 1. Retrieve memories
+                memories = memory_manager.search_memories(message)
+                
+                # 2. Get AI response with context
+                ai_response = get_ai_response(message, memories)
+                
+                # 3. Send response
                 self.send_message(ai_response, thread_id=thread_id, thread_type=thread_type)
+                
+                # TODO: Detect and save new memories (Task 3)
             else:
                 print(f"Unauthorized message from {author_id}")
 

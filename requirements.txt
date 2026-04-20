@@ -1,3 +1,4 @@
 fbapy
 python-dotenv
 openai
+chromadb
