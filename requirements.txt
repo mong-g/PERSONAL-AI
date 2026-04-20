@@ -4,3 +4,10 @@ openai
 chromadb
 python-telegram-bot
 google-generativeai
+google-auth-oauthlib
+google-api-python-client
+google-auth-httplib2
+duckduckgo-search
+Pillow
+vecs[text_embedding]
+psycopg2-binary
