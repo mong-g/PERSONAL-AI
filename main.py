@@ -107,5 +107,5 @@ if __name__ == '__main__':
     message_handler = MessageHandler((filters.TEXT | filters.PHOTO) & (~filters.COMMAND), handle_message)
     application.add_handler(message_handler)
     
-    print("Lucio AI (Elijah) is online and listening...")
+    print("--- ELIJAH VERSION 2.0 (CLOUD) IS STARTING ---")
     application.run_polling()
