@@ -1,2 +1,3 @@
 fbapy
 python-dotenv
+openai

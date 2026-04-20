@@ -1,8 +1,26 @@
 import os
 import json
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
+
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def get_ai_response(message):
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are Lucio, a proactive and friendly personal AI assistant. Keep your responses concise and helpful."},
+                {"role": "user", "content": message}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Error calling OpenAI: {e}")
+        return f"Lucio: Sorry, I had trouble thinking. (Error: {e})"
 
 def main():
     app_state_path = os.getenv("FACEBOOK_APP_STATE_PATH", "app_state.json")
@@ -21,11 +39,11 @@ def main():
 
             print(f"Received from {author_id}: {message}")
             
-            # Echo the message back (Phase 1)
-            # We will check if the sender is the authorized user (you)
+            # Check if the sender is the authorized user (you)
             authorized_user = os.getenv("USER_FB_ID")
             if author_id == authorized_user:
-                self.send_message(f"Lucio: You said '{message}'", thread_id=thread_id, thread_type=thread_type)
+                ai_response = get_ai_response(message)
+                self.send_message(ai_response, thread_id=thread_id, thread_type=thread_type)
             else:
                 print(f"Unauthorized message from {author_id}")
 
