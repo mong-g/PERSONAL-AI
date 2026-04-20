@@ -3,6 +3,7 @@ import json
 from dotenv import load_dotenv
 from openai import OpenAI
 from memory import MemoryManager
+from personality import SYSTEM_PROMPT, ONBOARDING_PROMPT
 
 load_dotenv()
 
@@ -10,21 +11,20 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 memory_manager = MemoryManager()
 
-def get_ai_response(message, memories):
+def get_ai_response(message, memories, is_onboarding=False):
     try:
         context = "\n".join([f"- {m}" for m in memories])
-        system_message = f"""You are Lucio, a proactive and friendly personal AI assistant. 
-Keep your responses concise and helpful.
-
-Here are some facts I remember about you:
-{context}
-
-Use these facts to personalize your response if relevant."""
+        
+        prompt = SYSTEM_PROMPT
+        if is_onboarding:
+            prompt = ONBOARDING_PROMPT
+            
+        full_system_message = f"{prompt}\n\nFacts I remember about you:\n{context}"
 
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": system_message},
+                {"role": "system", "content": full_system_message},
                 {"role": "user", "content": message}
             ]
         )
@@ -32,6 +32,30 @@ Use these facts to personalize your response if relevant."""
     except Exception as e:
         print(f"Error calling OpenAI: {e}")
         return f"Lucio: Sorry, I had trouble thinking. (Error: {e})"
+
+def detect_and_save_facts(user_message, ai_response):
+    """Uses LLM to extract potential facts to save from the conversation."""
+    try:
+        extraction_prompt = f"""Analyze the following exchange and extract any NEW personal facts, habits, or goals about the user.
+Format each fact as a single sentence. If no new facts, return 'NONE'.
+
+User: {user_message}
+Lucio: {ai_response}
+"""
+        response = client.chat.completions.create(
+            model="gpt-4o-mini", # Use a cheaper model for extraction
+            messages=[
+                {"role": "system", "content": "You are a data extraction assistant. Extract personal facts only."},
+                {"role": "user", "content": extraction_prompt}
+            ]
+        )
+        facts_text = response.choices[0].message.content.strip()
+        if facts_text != "NONE":
+            for fact in facts_text.split("\n"):
+                if fact.strip():
+                    memory_manager.add_memory(fact.strip())
+    except Exception as e:
+        print(f"Error extracting facts: {e}")
 
 def main():
     app_state_path = os.getenv("FACEBOOK_APP_STATE_PATH", "app_state.json")
@@ -44,25 +68,27 @@ def main():
 
     class Lucio(Client):
         def on_message(self, mid, author_id, message, thread_id, thread_type, ts, metadata):
-            # Ignore messages sent by Lucio himself
             if author_id == self.uid:
                 return
 
             print(f"Received from {author_id}: {message}")
             
-            # Check if the sender is the authorized user (you)
             authorized_user = os.getenv("USER_FB_ID")
             if author_id == authorized_user:
-                # 1. Retrieve memories
+                # 1. Check for onboarding
+                is_onboarding = memory_manager.collection.count() == 0
+                
+                # 2. Retrieve memories
                 memories = memory_manager.search_memories(message)
                 
-                # 2. Get AI response with context
-                ai_response = get_ai_response(message, memories)
+                # 3. Get AI response
+                ai_response = get_ai_response(message, memories, is_onboarding)
                 
-                # 3. Send response
+                # 4. Send response
                 self.send_message(ai_response, thread_id=thread_id, thread_type=thread_type)
                 
-                # TODO: Detect and save new memories (Task 3)
+                # 5. Background: Detect and save facts
+                detect_and_save_facts(message, ai_response)
             else:
                 print(f"Unauthorized message from {author_id}")
 
