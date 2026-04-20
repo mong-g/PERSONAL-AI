@@ -4,3 +4,4 @@ app_state.json
 __pycache__/
 *.pyc
 .venv/
+lucio_memory/

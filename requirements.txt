@@ -2,3 +2,5 @@ fbapy
 python-dotenv
 openai
 chromadb
+python-telegram-bot
+google-generativeai
