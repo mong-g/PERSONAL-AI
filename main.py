@@ -65,8 +65,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         logging.info(f"Received message from {user_id}: {message_text}")
 
-    # 1. Check for onboarding
-    is_onboarding = memory_manager.collection.count() == 0
+    # 1. Check for onboarding (Safely)
+    is_onboarding = False
+    if memory_manager.collection is not None:
+        try:
+            is_onboarding = memory_manager.collection.count() == 0
+        except Exception as e:
+            logging.error(f"Error counting memories: {e}")
     
     # 2. Retrieve memories
     memories = []

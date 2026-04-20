@@ -53,7 +53,8 @@ class MemoryManager:
 
     def search_memories(self, query_text, n_results=3):
         """Retrieves relevant facts from the Supabase vector database."""
-        if not self.collection:
+        if self.collection is None:
+            logging.warning("Search skipped: Supabase collection not initialized.")
             return []
 
         try:
@@ -64,13 +65,6 @@ class MemoryManager:
                 include_value=False,
                 include_metadata=False
             )
-            # The adapter returns the raw text content for matched vectors
-            # but 'vecs' with adapter returns the IDs or original data.
-            # In our case, the 'data' is the text itself.
-            
-            # Re-fetching or just returning the result IDs if they are enough?
-            # Actually, the adapter pattern in vecs is quite elegant.
-            # Let's simplify and just use the query for now.
             return results
         except Exception as e:
             logging.error(f"Error searching memories: {e}")
