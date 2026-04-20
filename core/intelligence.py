@@ -1,21 +1,16 @@
 import os
 import logging
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from core.personality import SYSTEM_PROMPT, ONBOARDING_PROMPT
 from tools.calendar_tool import list_upcoming_events, add_calendar_event
 from tools.search_tool import web_search
 
-# Initialize Gemini
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# Initialize new 2026 Gemini Client
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 # Define tools
 tools = [list_upcoming_events, add_calendar_event, web_search]
-
-model = genai.GenerativeModel(
-    'gemini-1.5-flash',
-    tools=tools
-)
-extract_model = genai.GenerativeModel('gemini-1.5-flash')
 
 def get_ai_response(message, memories, is_onboarding=False, image=None):
     try:
@@ -31,15 +26,21 @@ def get_ai_response(message, memories, is_onboarding=False, image=None):
         if image:
             content_parts.append(image)
 
-        # Use a chat session for automatic function calling
-        chat = model.start_chat(enable_automatic_function_calling=True)
-        response = chat.send_message(content_parts)
+        # 2026 SDK Syntax: Automatic function calling with generate_content
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=content_parts,
+            config=types.GenerateContentConfig(
+                tools=tools,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False)
+            )
+        )
         
         return response.text
     except FileNotFoundError as e:
         return f"Elijah: I'd love to help with your calendar, but I'm missing my credentials. {str(e)}"
     except Exception as e:
-        logging.error(f"Error calling Gemini: {e}")
+        logging.error(f"Error calling Gemini 2.0: {e}")
         return f"Elijah: Sorry, I had trouble thinking. (Error: {e})"
 
 def detect_and_save_facts(user_message, ai_response, memory_manager):
@@ -54,7 +55,11 @@ Format each fact as a single sentence. If no new facts, return 'NONE'.
 User: {user_message}
 Elijah: {ai_response}
 """
-        response = extract_model.generate_content(f"System: You are a data extraction assistant. Extract personal facts only.\n\n{extraction_prompt}")
+        # Using 2.0-flash for fast extraction
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=[f"System: You are a data extraction assistant. Extract personal facts only.\n\n{extraction_prompt}"]
+        )
         
         facts_text = response.text.strip()
         if "NONE" not in facts_text.upper():
