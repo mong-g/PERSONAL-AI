@@ -1,1 +1,6 @@
 .worktrees/
+.env
+app_state.json
+__pycache__/
+*.pyc
+.venv/
