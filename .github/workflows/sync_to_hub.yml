@@ -2,7 +2,6 @@ name: Sync to Hugging Face Hub
 on:
   push:
     branches: [main]
-  # Allow manual trigger
   workflow_dispatch:
 
 jobs:
@@ -16,4 +15,6 @@ jobs:
       - name: Push to Hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: git push --force https://Elijah04:$HF_TOKEN@huggingface.co/spaces/Elijah04/Elijah-AI main
+        run: |
+          # This command forces our 'main' branch to become the 'main' branch on Hugging Face
+          git push --force https://Elijah04:$HF_TOKEN@huggingface.co/spaces/Elijah04/Elijah-AI main:refs/heads/main
