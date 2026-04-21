@@ -7,7 +7,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from dotenv import load_dotenv
 
-# --- ULTIMATE LOGGING ---
+# --- LOGGING ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
@@ -16,9 +16,9 @@ logging.basicConfig(
 
 load_dotenv()
 
-VERSION = "2.11 (POLLING-FIX)"
+VERSION = "2.12 (WEBHOOK-RESET)"
 
-# --- CONFIG VERIFICATION ---
+# --- HELPERS ---
 def mask(s):
     if not s: return "MISSING"
     return f"{s[:5]}...{s[-3:]}" if len(s) > 8 else "***"
@@ -68,7 +68,6 @@ async def handle_message(update, context):
         logging.warning(f"UNAUTHORIZED ACCESS: User {user_id} is not {auth_id}")
         return
 
-    # Image handling
     image, tmp_path = None, None
     if update.message.photo:
         try:
@@ -80,9 +79,7 @@ async def handle_message(update, context):
         except Exception as e:
             logging.error(f"Image error: {e}")
 
-    # Process
     try:
-        # 1. Memories
         def get_mem():
             coll = memory_manager.get_collection()
             m = []
@@ -91,20 +88,15 @@ async def handle_message(update, context):
             return m, (coll.count() == 0 if coll else False)
         
         memories, is_onboarding = await asyncio.to_thread(get_mem)
-        
-        # 2. AI Response
         msg = update.message.text or update.message.caption or "Look at this."
         ai_response = await get_ai_response(msg, memories, is_onboarding, image)
         
-        # 3. Reply
         await context.bot.send_message(
             chat_id=update.effective_chat.id, 
             text=ai_response,
             connect_timeout=60,
             read_timeout=60
         )
-        
-        # 4. Save Facts
         asyncio.create_task(detect_and_save_facts(msg, ai_response, memory_manager))
         
     except Exception as e:
@@ -112,44 +104,54 @@ async def handle_message(update, context):
     finally:
         if tmp_path and os.path.exists(tmp_path): os.remove(tmp_path)
 
-if __name__ == '__main__':
+async def main():
     logging.info(f"=== INITIALIZING ELIJAH {VERSION} ===")
     
     token = os.getenv("TELEGRAM_BOT_TOKEN")
-    user_id = os.getenv("TELEGRAM_USER_ID")
+    auth_id = os.getenv("TELEGRAM_USER_ID")
     
     logging.info(f"TOKEN: {mask(token)}")
-    logging.info(f"AUTH USER ID: {user_id}")
+    logging.info(f"AUTH ID: {auth_id}")
     
     if not token:
         logging.critical("FATAL: No Bot Token!")
-        exit(1)
+        return
 
-    # Start health server
     threading.Thread(target=run_health_server, daemon=True).start()
 
-    # Deferred imports
     from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, TypeHandler, filters
     from telegram.request import HTTPXRequest
     from core.memory import MemoryManager
     
+    global memory_manager
     memory_manager = MemoryManager()
     
-    # Configure Application
-    # High timeouts in the request config is the CORRECT place
+    # 1. Reset Telegram State
+    logging.info("CLEANING TELEGRAM STATE (Deleting Webhooks)...")
+    temp_app = ApplicationBuilder().token(token).build()
+    await temp_app.bot.delete_webhook(drop_pending_updates=True)
+    await temp_app.shutdown()
+    logging.info("TELEGRAM STATE CLEANED. Ready for Polling.")
+
+    # 2. Build Real Application
     request_config = HTTPXRequest(connect_timeout=120, read_timeout=120)
     application = ApplicationBuilder().token(token).request(request_config).build()
     
-    # Register Handlers
     application.add_handler(TypeHandler(object, handle_any_update), group=-1) 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, handle_message))
     
     logging.info(f"=== ELIJAH {VERSION} STARTING POLLING ===")
     
-    # run_polling should only have valid arguments
-    application.run_polling(
-        drop_pending_updates=True,
-        bootstrap_retries=-1,
-        timeout=30
-    )
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(drop_pending_updates=True)
+    
+    while True: await asyncio.sleep(3600)
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt: pass
+    except Exception as e:
+        logging.critical(f"FATAL CRASH: {e}", exc_info=True)
