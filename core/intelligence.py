@@ -26,9 +26,9 @@ def get_ai_response(message, memories, is_onboarding=False, image=None):
         if image:
             content_parts.append(image)
 
-        # Using the standard 1.5-flash model name
+        # Using the current stable 2026 model: Gemini 2.5 Flash
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-2.5-flash',
             contents=content_parts,
             config=types.GenerateContentConfig(
                 tools=tools,

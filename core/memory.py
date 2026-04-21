@@ -11,6 +11,9 @@ class MemoryManager:
             self.collection = None
             return
 
+        # Clean the URL of any accidental spaces or newlines
+        self.db_url = self.db_url.strip()
+
         try:
             # Create vector store client
             self.vx = vecs.create_client(self.db_url)
