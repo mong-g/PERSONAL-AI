@@ -28,7 +28,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Elijah is alive and running Version 2.4!")
+        self.wfile.write(b"Elijah is alive and running Version 2.5!")
     
     def log_message(self, format, *args):
         return
@@ -47,7 +47,6 @@ memory_manager = MemoryManager()
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.error("Exception while handling an update:", exc_info=context.error)
-    # Don't try to send a message on timeout errors as it will likely fail too
     if "Timed out" in str(context.error):
         return
         
@@ -109,10 +108,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=update.effective_chat.id, 
             text=ai_response,
-            connect_timeout=120,
-            read_timeout=120,
-            write_timeout=120,
-            pool_timeout=120
+            connect_timeout=60,
+            read_timeout=60,
+            write_timeout=60,
+            pool_timeout=60
         )
     except Exception as e:
         logging.error(f"Failed to send message: {e}")
@@ -132,8 +131,7 @@ if __name__ == '__main__':
     # Start health check server
     threading.Thread(target=run_health_server, daemon=True).start()
 
-    # Extreme request configuration for Hugging Face
-    # Increasing to 120 seconds to be absolutely safe
+    # Correct request configuration: Timeouts go in HTTPXRequest
     request_config = HTTPXRequest(
         connect_timeout=120, 
         read_timeout=120, 
@@ -145,17 +143,14 @@ if __name__ == '__main__':
     application.add_error_handler(error_handler)
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & (~filters.COMMAND), handle_message))
     
-    print("--- ELIJAH VERSION 2.4 (EMERGENCY-FIX) IS STARTING ---")
+    print("--- ELIJAH VERSION 2.5 (FIXED-POLLING) IS STARTING ---")
     
     # Manual retry loop for initial connection
     while True:
         try:
-            # We use a smaller timeout for polling to check for updates frequently
-            # but huge timeouts for the underlying connection
+            # run_polling only accepts 'timeout' (polling interval), not 'connect_timeout'
             application.run_polling(
-                connect_timeout=120, 
-                read_timeout=120, 
-                timeout=20,
+                timeout=30,
                 bootstrap_retries=-1
             )
             break
