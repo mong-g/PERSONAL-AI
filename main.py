@@ -16,9 +16,9 @@ logging.basicConfig(
 
 load_dotenv()
 
-VERSION = "2.13 (EXTREME-STABILITY)"
+VERSION = "2.14 (LOOP-FIX)"
 
-# --- HELPERS ---
+# --- CONFIG ---
 def mask(s):
     if not s: return "MISSING"
     return f"{s[:5]}...{s[-3:]}" if len(s) > 8 else "***"
@@ -36,7 +36,7 @@ def run_health_server():
     port = int(os.getenv("PORT", 7860))
     try:
         httpd = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-        logging.info(f"Health check server live on port {port}")
+        logging.info(f"Health check live on port {port}")
         httpd.serve_forever()
     except Exception as e:
         logging.error(f"Health server error: {e}")
@@ -100,8 +100,11 @@ async def handle_message(update, context):
 async def main():
     logging.info(f"=== INITIALIZING ELIJAH {VERSION} ===")
     token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token: return logging.critical("No Token!")
+    if not token: 
+        logging.critical("No Token!")
+        return
 
+    # Start health server immediately
     threading.Thread(target=run_health_server, daemon=True).start()
 
     from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, TypeHandler, filters
@@ -114,21 +117,17 @@ async def main():
     # EXTREME TIMEOUT CONFIG
     request_config = HTTPXRequest(connect_timeout=120, read_timeout=120)
 
-    # 1. Resilient Webhook Cleanup
-    logging.info("Step 1: Cleaning Telegram State...")
-    for i in range(3):
-        try:
-            cleanup_app = ApplicationBuilder().token(token).request(request_config).build()
-            await cleanup_app.bot.delete_webhook(drop_pending_updates=True)
-            await cleanup_app.shutdown()
-            logging.info("Step 1 SUCCESS: Webhook deleted.")
-            break
-        except Exception as e:
-            logging.warning(f"Step 1 Retry {i+1}: {e}")
-            await asyncio.sleep(5)
+    # 1. Non-fatal Reset
+    logging.info("Step 1: Attempting Webhook Cleanup (Non-fatal)...")
+    try:
+        cleanup_bot = ApplicationBuilder().token(token).request(request_config).build().bot
+        await cleanup_bot.delete_webhook(drop_pending_updates=True)
+        logging.info("Step 1 SUCCESS: Webhook deleted.")
+    except Exception as e:
+        logging.warning(f"Step 1 SKIPPED: {e}")
     
-    # 2. Start Main Application
-    logging.info("Step 2: Building Main Application...")
+    # 2. Build Main Application
+    logging.info("Step 2: Building Application...")
     application = ApplicationBuilder().token(token).request(request_config).build()
     application.add_handler(TypeHandler(object, handle_any_update), group=-1) 
     application.add_handler(CommandHandler("start", start_command))
@@ -136,16 +135,22 @@ async def main():
     
     logging.info(f"=== Step 3: STARTING POLLING ({VERSION}) ===")
     
-    # run_polling handles initialize() and start() internally
-    await application.run_polling(
-        drop_pending_updates=True,
-        bootstrap_retries=-1, # Infinite retries
-        timeout=30
-    )
+    # Manual start sequence to avoid loop conflicts
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(drop_pending_updates=True)
+    
+    logging.info("Polling successfully started. Elijah is online.")
+    
+    # Keep the async loop alive
+    while True:
+        await asyncio.sleep(3600)
 
 if __name__ == '__main__':
+    # Use a simpler execution to avoid nested run_polling errors
     try:
         asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit): pass
+    except (KeyboardInterrupt, SystemExit):
+        pass
     except Exception as e:
-        logging.critical(f"CRASH: {e}", exc_info=True)
+        logging.critical(f"FATAL CRASH: {e}", exc_info=True)
