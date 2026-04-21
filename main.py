@@ -16,7 +16,7 @@ logging.basicConfig(
 
 load_dotenv()
 
-VERSION = "2.10 (FINAL-STABILITY)"
+VERSION = "2.11 (POLLING-FIX)"
 
 # --- CONFIG VERIFICATION ---
 def mask(s):
@@ -51,7 +51,7 @@ async def handle_any_update(update, context):
 async def start_command(update, context):
     user_id = str(update.effective_user.id)
     logging.info(f"START received from {user_id}")
-    await update.message.reply_text(f"Elijah {VERSION} is ACTIVE.\n\nYour ID: `{user_id}`\nAuthorized ID: `{os.getenv('TELEGRAM_USER_ID')}`\n\nIf these don't match, I won't respond to chat!")
+    await update.message.reply_text(f"Elijah {VERSION} is ACTIVE.\n\nYour ID: `{user_id}`\nAuthorized ID: `{os.getenv('TELEGRAM_USER_ID')}`")
 
 async def handle_message(update, context):
     from PIL import Image
@@ -136,21 +136,20 @@ if __name__ == '__main__':
     memory_manager = MemoryManager()
     
     # Configure Application
-    request_config = HTTPXRequest(connect_timeout=60, read_timeout=60)
+    # High timeouts in the request config is the CORRECT place
+    request_config = HTTPXRequest(connect_timeout=120, read_timeout=120)
     application = ApplicationBuilder().token(token).request(request_config).build()
     
-    # Register Handlers in priority order
-    application.add_handler(TypeHandler(object, handle_any_update), group=-1) # Log EVERYTHING
+    # Register Handlers
+    application.add_handler(TypeHandler(object, handle_any_update), group=-1) 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, handle_message))
     
     logging.info(f"=== ELIJAH {VERSION} STARTING POLLING ===")
     
-    # The most stable polling configuration
+    # run_polling should only have valid arguments
     application.run_polling(
         drop_pending_updates=True,
         bootstrap_retries=-1,
-        timeout=30,
-        read_timeout=60,
-        connect_timeout=60
+        timeout=30
     )
