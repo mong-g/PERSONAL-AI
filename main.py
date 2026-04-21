@@ -22,13 +22,13 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# --- Simple Health Check Server for Koyeb/HF ---
+# --- Simple Health Check Server ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Elijah is alive!")
+        self.wfile.write(b"Elijah is alive and running Version 2.4!")
     
     def log_message(self, format, *args):
         return
@@ -47,6 +47,10 @@ memory_manager = MemoryManager()
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.error("Exception while handling an update:", exc_info=context.error)
+    # Don't try to send a message on timeout errors as it will likely fail too
+    if "Timed out" in str(context.error):
+        return
+        
     if update and isinstance(update, Update) and update.effective_chat:
         try:
             await context.bot.send_message(
@@ -78,7 +82,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 image = Image.open(tmp_path)
         except Exception as e:
             logging.error(f"Error downloading photo: {e}")
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="Elijah: I had trouble seeing that photo. Could you try sending it again?")
             return
     else:
         logging.info(f"Received message from {user_id}: {message_text}")
@@ -106,10 +109,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=update.effective_chat.id, 
             text=ai_response,
-            connect_timeout=60,
-            read_timeout=60,
-            write_timeout=60,
-            pool_timeout=60
+            connect_timeout=120,
+            read_timeout=120,
+            write_timeout=120,
+            pool_timeout=120
         )
     except Exception as e:
         logging.error(f"Failed to send message: {e}")
@@ -129,30 +132,33 @@ if __name__ == '__main__':
     # Start health check server
     threading.Thread(target=run_health_server, daemon=True).start()
 
-    # Ultra-resilient request configuration
+    # Extreme request configuration for Hugging Face
+    # Increasing to 120 seconds to be absolutely safe
     request_config = HTTPXRequest(
-        connect_timeout=60, 
-        read_timeout=60, 
-        write_timeout=60, 
-        pool_timeout=60
+        connect_timeout=120, 
+        read_timeout=120, 
+        write_timeout=120, 
+        pool_timeout=120
     )
     
     application = ApplicationBuilder().token(token).request(request_config).build()
     application.add_error_handler(error_handler)
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & (~filters.COMMAND), handle_message))
     
-    print("--- ELIJAH VERSION 2.3 (ULTRA-STABLE) IS STARTING ---")
+    print("--- ELIJAH VERSION 2.4 (EMERGENCY-FIX) IS STARTING ---")
     
-    # Manual retry loop for initial connection to overcome flaky cloud DNS/Network
+    # Manual retry loop for initial connection
     while True:
         try:
+            # We use a smaller timeout for polling to check for updates frequently
+            # but huge timeouts for the underlying connection
             application.run_polling(
-                connect_timeout=60, 
-                read_timeout=60, 
-                timeout=30,
-                bootstrap_retries=-1 # Infinite retries for bootstrap
+                connect_timeout=120, 
+                read_timeout=120, 
+                timeout=20,
+                bootstrap_retries=-1
             )
             break
         except Exception as e:
-            logging.error(f"Polling crashed, restarting in 5s... Error: {e}")
-            time.sleep(5)
+            logging.error(f"Polling crashed, restarting in 10s... Error: {e}")
+            time.sleep(10)
