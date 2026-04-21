@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 import tempfile
 import threading
@@ -7,6 +8,7 @@ from dotenv import load_dotenv
 from PIL import Image
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from telegram.request import HTTPXRequest
 
 from core.memory import MemoryManager
 from core.intelligence import get_ai_response, detect_and_save_facts
@@ -41,6 +43,18 @@ def run_health_server():
 
 memory_manager = MemoryManager()
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a telegram message to notify the developer."""
+    logging.error("Exception while handling an update:", exc_info=context.error)
+    if update and isinstance(update, Update) and update.effective_chat:
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Elijah: Oops! I encountered a temporary network issue. Please try again in a moment."
+            )
+        except Exception:
+            pass
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     authorized_user = os.getenv("TELEGRAM_USER_ID")
@@ -56,36 +70,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if update.message.photo:
         logging.info(f"Received photo from {user_id}")
-        photo_file = await update.message.photo[-1].get_file()
-        
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            tmp_path = tmp.name
-            await photo_file.download_to_drive(tmp_path)
-            image = Image.open(tmp_path)
+        try:
+            photo_file = await update.message.photo[-1].get_file()
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                tmp_path = tmp.name
+                await photo_file.download_to_drive(tmp_path)
+                image = Image.open(tmp_path)
+        except Exception as e:
+            logging.error(f"Error downloading photo: {e}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Elijah: I had trouble seeing that photo. Could you try sending it again?")
+            return
     else:
         logging.info(f"Received message from {user_id}: {message_text}")
 
     # 1. Check for onboarding (ULTRA SAFE)
     is_onboarding = False
     try:
-        if hasattr(memory_manager, 'collection') and memory_manager.collection is not None:
-            is_onboarding = (memory_manager.collection.count() == 0)
+        # Wrap the whole check in thread to avoid any blocking
+        def check_onboarding():
+            if hasattr(memory_manager, 'get_collection'):
+                coll = memory_manager.get_collection()
+                if coll:
+                    return coll.count() == 0
+            return False
+        
+        is_onboarding = await asyncio.to_thread(check_onboarding)
     except Exception as e:
         logging.error(f"Onboarding check failed: {e}")
     
     # 2. Retrieve memories
     memories = []
     if message_text:
-        memories = memory_manager.search_memories(message_text)
+        # Wrap sync search in to_thread
+        memories = await asyncio.to_thread(memory_manager.search_memories, message_text)
     
-    # 3. Get AI response (Gemini + Tools)
-    ai_response = get_ai_response(message_text, memories, is_onboarding, image)
+    # 3. Get AI response (Gemini + Tools) - NOW ASYNC
+    ai_response = await get_ai_response(message_text, memories, is_onboarding, image)
     
-    # 4. Send response
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=ai_response)
+    # 4. Send response with a longer timeout to handle flaky networks
+    try:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, 
+            text=ai_response,
+            connect_timeout=30,
+            read_timeout=30
+        )
+    except Exception as e:
+        logging.error(f"Failed to send message: {e}")
     
-    # 5. Background: Detect and save facts
-    detect_and_save_facts(message_text, ai_response, memory_manager)
+    # 5. Background: Detect and save facts - NOW ASYNC
+    asyncio.create_task(detect_and_save_facts(message_text, ai_response, memory_manager))
 
     # Cleanup image
     if tmp_path and os.path.exists(tmp_path):
@@ -101,11 +135,16 @@ if __name__ == '__main__':
     health_thread = threading.Thread(target=run_health_server, daemon=True)
     health_thread.start()
 
-    application = ApplicationBuilder().token(token).build()
+    # Increase timeouts for flaky networks (Koyeb/HuggingFace/Spaces)
+    request_config = HTTPXRequest(connect_timeout=30, read_timeout=30)
+    application = ApplicationBuilder().token(token).request(request_config).build()
+    
+    # Add error handler
+    application.add_error_handler(error_handler)
     
     # Handle both text and photos
     message_handler = MessageHandler((filters.TEXT | filters.PHOTO) & (~filters.COMMAND), handle_message)
     application.add_handler(message_handler)
     
-    print("--- ELIJAH VERSION 2.0 (CLOUD) IS STARTING ---")
-    application.run_polling()
+    print("--- ELIJAH VERSION 2.2 (STABLE) IS STARTING ---")
+    application.run_polling(connect_timeout=30, read_timeout=30)

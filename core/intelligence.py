@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 from google import genai
 from google.genai import types
@@ -12,7 +13,7 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 # Define tools
 tools = [list_upcoming_events, add_calendar_event, web_search]
 
-def get_ai_response(message, memories, is_onboarding=False, image=None):
+async def get_ai_response(message, memories, is_onboarding=False, image=None):
     try:
         context = "\n".join([f"- {m}" for m in memories])
 
@@ -26,8 +27,8 @@ def get_ai_response(message, memories, is_onboarding=False, image=None):
         if image:
             content_parts.append(image)
 
-        # Using the current stable 2026 model: Gemini 2.5 Flash
-        response = client.models.generate_content(
+        # Using the current stable 2026 model: Gemini 2.5 Flash (Async)
+        response = await client.aio.models.generate_content(
             model='gemini-2.5-flash',
             contents=content_parts,
             config=types.GenerateContentConfig(
@@ -46,7 +47,7 @@ def get_ai_response(message, memories, is_onboarding=False, image=None):
         logging.error(f"Error calling Gemini: {e}")
         return f"Elijah: Sorry, I had trouble thinking. (Error: {e})"
 
-def detect_and_save_facts(user_message, ai_response, memory_manager):
+async def detect_and_save_facts(user_message, ai_response, memory_manager):
     """Uses LLM to extract potential facts to save from the conversation."""
     if not user_message:
         return
@@ -58,8 +59,8 @@ Format each fact as a single sentence. If no new facts, return 'NONE'.
 User: {user_message}
 Elijah: {ai_response}
 """
-        # Using 2.5-flash for extraction
-        response = client.models.generate_content(
+        # Using 2.5-flash for extraction (Async)
+        response = await client.aio.models.generate_content(
             model='gemini-2.5-flash',
             contents=[f"System: You are a data extraction assistant. Extract personal facts only.\n\n{extraction_prompt}"]
         )
@@ -68,7 +69,8 @@ Elijah: {ai_response}
         if "NONE" not in facts_text.upper():
             for fact in facts_text.split("\n"):
                 if fact.strip():
-                    memory_manager.add_memory(fact.strip())
+                    # MemoryManager.add_memory is sync, wrap in to_thread
+                    await asyncio.to_thread(memory_manager.add_memory, fact.strip())
     except Exception as e:
         logging.error(f"Error extracting facts: {e}")
 
